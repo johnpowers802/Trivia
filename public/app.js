@@ -4,7 +4,8 @@
    to the API and re-renders from the returned state.
    ============================================================ */
 const MAP = window.TriviaRiskMap;
-const { TERRITORIES, CATEGORY_BADGES, CONTINENTS, WRAP_LINKS, PLAYER_COLORS, PLAYER_NAMES_DEFAULT } = MAP;
+const SHAPES = window.TriviaRiskShapes;
+const { TERRITORIES, CATEGORY_BADGES, PLAYER_COLORS, PLAYER_NAMES_DEFAULT } = MAP;
 const SVGNS = "http://www.w3.org/2000/svg";
 const $ = (id) => document.getElementById(id);
 
@@ -48,59 +49,61 @@ function apply(data) {
 function buildMap() {
   const svg = $("map");
   svg.innerHTML = "";
+  const [W, H] = SHAPES.VIEWBOX;
+
   const bg = document.createElementNS(SVGNS, "rect");
   bg.setAttribute("x", 0); bg.setAttribute("y", 0);
-  bg.setAttribute("width", 1000); bg.setAttribute("height", 600);
+  bg.setAttribute("width", W); bg.setAttribute("height", H);
   bg.setAttribute("fill", "var(--sea)");
   svg.appendChild(bg);
 
-  for (const cont in CONTINENTS) {
-    const members = Object.values(TERRITORIES).filter((t) => t.continent === cont);
-    const cx = members.reduce((s, t) => s + t.pos[0], 0) / members.length;
-    const cy = members.reduce((s, t) => s + t.pos[1], 0) / members.length;
-    const lbl = document.createElementNS(SVGNS, "text");
-    lbl.setAttribute("class", "cont-label");
-    lbl.setAttribute("x", cx); lbl.setAttribute("y", cy);
-    lbl.textContent = cont;
-    svg.appendChild(lbl);
+  // Dotted sea routes (drawn under the landmasses' badges).
+  const routes = document.createElementNS(SVGNS, "g");
+  for (const [a, b] of SHAPES.SEA_ROUTES) {
+    const p1 = SHAPES.LABELS[a], p2 = SHAPES.LABELS[b];
+    if (!p1 || !p2) continue;
+    const l = document.createElementNS(SVGNS, "line");
+    l.setAttribute("x1", p1[0]); l.setAttribute("y1", p1[1]);
+    l.setAttribute("x2", p2[0]); l.setAttribute("y2", p2[1]);
+    l.setAttribute("class", "sea-route");
+    routes.appendChild(l);
   }
+  svg.appendChild(routes);
 
-  const drawn = new Set();
+  // Territory landmasses + badges.
   for (const id in TERRITORIES) {
-    for (const n of TERRITORIES[id].adj) {
-      const key = [id, n].sort().join("|");
-      if (drawn.has(key)) continue;
-      drawn.add(key);
-      if (WRAP_LINKS.some(([a, b]) => (a === id && b === n) || (a === n && b === id))) continue;
-      line(svg, TERRITORIES[id].pos, TERRITORIES[n].pos, "sea-line");
-    }
-  }
-  for (const [a, b] of WRAP_LINKS) line(svg, TERRITORIES[a].pos, TERRITORIES[b].pos, "sea-line wrap");
-
-  for (const id in TERRITORIES) {
+    if (!SHAPES.PATHS[id]) continue;
     const t = TERRITORIES[id];
+    const [cx, cy] = SHAPES.LABELS[id];
+
     const g = document.createElementNS(SVGNS, "g");
     g.setAttribute("class", "terr-node");
     g.dataset.id = id;
 
-    const c = document.createElementNS(SVGNS, "circle");
-    c.setAttribute("class", "terr-circle");
-    c.setAttribute("cx", t.pos[0]); c.setAttribute("cy", t.pos[1]); c.setAttribute("r", 15);
-    g.appendChild(c);
+    const path = document.createElementNS(SVGNS, "path");
+    path.setAttribute("class", "terr-shape");
+    path.setAttribute("d", SHAPES.PATHS[id]);
+    g.appendChild(path);
 
-    const cat = document.createElementNS(SVGNS, "text");
-    cat.setAttribute("class", "terr-cat");
-    cat.setAttribute("x", t.pos[0]); cat.setAttribute("y", t.pos[1] - 19);
-    g.appendChild(cat);
+    // Troop badge: dark disc with white ring + count, like the board game.
+    const badge = document.createElementNS(SVGNS, "circle");
+    badge.setAttribute("class", "terr-badge");
+    badge.setAttribute("cx", cx); badge.setAttribute("cy", cy); badge.setAttribute("r", 19);
+    g.appendChild(badge);
 
     const army = document.createElementNS(SVGNS, "text");
     army.setAttribute("class", "terr-army");
-    army.setAttribute("x", t.pos[0]); army.setAttribute("y", t.pos[1]);
+    army.setAttribute("x", cx); army.setAttribute("y", cy);
     g.appendChild(army);
+
+    const cat = document.createElementNS(SVGNS, "text");
+    cat.setAttribute("class", "terr-cat");
+    cat.setAttribute("x", cx + 19); cat.setAttribute("y", cy - 15);
+    g.appendChild(cat);
 
     const name = document.createElementNS(SVGNS, "text");
     name.setAttribute("class", "terr-label");
-    name.setAttribute("x", t.pos[0]); name.setAttribute("y", t.pos[1] + 26);
+    name.setAttribute("x", cx); name.setAttribute("y", cy + 33);
     name.textContent = t.name;
     g.appendChild(name);
 
@@ -108,13 +111,6 @@ function buildMap() {
     g.addEventListener("mouseenter", () => showTerrInfo(id));
     svg.appendChild(g);
   }
-}
-function line(svg, p1, p2, cls) {
-  const l = document.createElementNS(SVGNS, "line");
-  l.setAttribute("x1", p1[0]); l.setAttribute("y1", p1[1]);
-  l.setAttribute("x2", p2[0]); l.setAttribute("y2", p2[1]);
-  l.setAttribute("class", cls);
-  svg.appendChild(l);
 }
 
 function showTerrInfo(id) {
@@ -131,15 +127,15 @@ function render() {
   for (const id in TERRITORIES) {
     const g = document.querySelector(`.terr-node[data-id="${id}"]`);
     if (!g) continue;
-    const circle = g.querySelector(".terr-circle");
+    const shape = g.querySelector(".terr-shape");
     const army = g.querySelector(".terr-army");
     const cat = g.querySelector(".terr-cat");
-    circle.setAttribute("fill", S.players[S.owner[id]].color);
+    shape.setAttribute("fill", S.players[S.owner[id]].color);
     army.textContent = S.armies[id];
     const badge = CATEGORY_BADGES[S.categories[id]];
     cat.textContent = badge ? badge.icon : "";
-    circle.classList.remove("selectable", "selected", "target");
-    if (id === UI.selected) circle.classList.add("selected");
+    shape.classList.remove("selectable", "selected", "target");
+    if (id === UI.selected) shape.classList.add("selected");
   }
   highlightTargets();
   renderSidebar();
@@ -154,7 +150,7 @@ function isMyTurnInteractive() {
 function highlightTargets() {
   if (!isMyTurnInteractive()) return;
   const mark = (id, cls) => {
-    const el = document.querySelector(`.terr-node[data-id="${id}"] .terr-circle`);
+    const el = document.querySelector(`.terr-node[data-id="${id}"] .terr-shape`);
     if (el) el.classList.add(cls);
   };
   const mine = ownTerritories();
