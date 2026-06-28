@@ -11,17 +11,19 @@ estimate can still beat a bigger army. **Margin of error decides the war.**
 
 ## How a battle works
 
-1. Attacker picks an adjacent enemy territory and how many troops to commit (1–4).
-2. Defender's troops are committed (default `min(2, troops)`; selectable).
-3. The server asks Anthropic for a fresh question in the defending territory's category.
-4. Attacker enters a numeric guess; then the defender (who sees the attacker's guess) enters theirs.
-5. The answer is revealed and scored:
-   - **Amount** questions: `errorPoints = (max/min − 1) × 100` (scale-independent).
+A battle is a series of **one-question rounds** between the two territories' full
+armies (no troop commitment):
+
+1. Attacker picks an adjacent enemy territory to attack (needs 2+ troops).
+2. The server asks Anthropic for a fresh question in the **defending** territory's category.
+3. Attacker enters a numeric guess; then the defender (who sees the attacker's guess) enters theirs. **The defender may copy the attacker's guess.**
+4. The answer is revealed; the **closest guess wins the round**:
+   - **Amount** questions: `errorPoints = (max/min − 1) × 100` (scale-independent); lower is closer.
    - **Year** questions: `errorPoints = |guess − answer| × 5`.
-   - **Troop bonus:** `(committedTroops − 1) × 10`, subtracted from error points (floored at 0).
-   - Lowest final score wins; exact ties go to the **defender**.
-6. Damage by score gap: ≤20 → 1 troop, ≤60 → 2, >60 → 3 (capped at the loser's committed troops).
-   Reducing a defending territory to 0 troops captures it.
+   - **Exact ties go to the attacker** (so copying never helps the defender).
+5. Outcome:
+   - **Attacker wins** → the defender loses **1 troop**, and a fresh question pops up (attacker first). The attacker may keep firing or **retreat**. When the defending territory hits **0**, it's captured.
+   - **Defender wins** → the **attacker** loses 1 troop and the **attack ends**.
 
 ## Run it
 
