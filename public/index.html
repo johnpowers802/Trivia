@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trivia Risk: Margin of Error</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <h1><span class="brand-a">Trivia</span> Risk <span class="brand-sub">Margin of Error</span></h1>
+      <div class="turn-pill">
+        <span class="swatch" id="turn-swatch"></span>
+        <span id="turn-name">—</span>
+      </div>
+      <div class="phase-tag">Phase <b id="phase-name">—</b> · Turn <span id="turn-count">1</span></div>
+      <div class="topbar-actions">
+        <button class="ghost" id="btn-save">Save</button>
+        <button class="ghost" id="btn-load">Load</button>
+        <button class="ghost" id="btn-new">New game</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="map-wrap">
+        <svg id="map" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="map-foot" id="terr-info">Hover or click a territory to see its trivia category.</div>
+      </div>
+
+      <aside class="side">
+        <div class="panel">
+          <h3>This turn</h3>
+          <div class="hint" id="hint">Loading…</div>
+          <div id="reinforce-box" hidden>
+            <span class="reinforce-counter" id="reinforce-count">0</span>
+            <span class="muted"> armies to place</span>
+          </div>
+          <div class="controls">
+            <button id="btn-advance" class="primary">Next phase →</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Commanders</h3>
+          <div class="players-list" id="players-list"></div>
+        </div>
+
+        <div class="panel" style="flex:0"><h3>Game history</h3></div>
+        <div class="logbox" id="logbox"></div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Setup modal -->
+  <div class="overlay" id="setup-overlay">
+    <div class="modal">
+      <h2>Trivia Risk: Margin of Error</h2>
+      <p class="sub">Conquer the world — but every battle is a numeric trivia duel. The closest guess wins; troops shave points off your error.</p>
+      <div class="field">
+        <label>How many players?</label>
+        <div class="seg" id="seg-players"></div>
+      </div>
+      <div class="field">
+        <label>Players (name &amp; color)</label>
+        <div id="player-rows"></div>
+      </div>
+      <p class="apinote" id="api-note"></p>
+      <div class="actions">
+        <button class="primary" id="btn-start" style="flex:1">Begin campaign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Battle modal -->
+  <div class="overlay" id="battle-overlay" hidden>
+    <div class="modal battle">
+      <div class="battle-head">
+        <span class="cat-badge" id="battle-cat">Category</span>
+        <span class="battle-route" id="battle-route"></span>
+      </div>
+
+      <div id="battle-loading" class="battle-loading" hidden>
+        <div class="spinner"></div>
+        <div>Generating a fresh question from Anthropic…</div>
+      </div>
+
+      <div id="battle-error" class="battle-error" hidden>
+        <p id="battle-error-msg">Question generation failed. Try again.</p>
+        <div class="actions">
+          <button class="primary" id="btn-retry-q">Retry question</button>
+          <button class="ghost" id="btn-cancel-attack">Cancel attack</button>
+        </div>
+      </div>
+
+      <div id="battle-body" hidden>
+        <p class="question" id="battle-question"></p>
+        <div class="commit-row" id="commit-info"></div>
+
+        <div class="guess-stage" id="stage-attacker" hidden>
+          <label id="atk-label">Attacker, enter your numeric guess:</label>
+          <div class="guess-input">
+            <input type="number" id="atk-guess" step="any" inputmode="decimal" />
+            <span class="unit" id="atk-unit"></span>
+            <button class="primary" id="btn-atk-submit">Lock in</button>
+          </div>
+          <div class="err" id="atk-err"></div>
+        </div>
+
+        <div class="guess-stage" id="stage-defender" hidden>
+          <div class="locked" id="atk-locked"></div>
+          <label id="def-label">Defender, enter your numeric guess:</label>
+          <div class="guess-input">
+            <input type="number" id="def-guess" step="any" inputmode="decimal" />
+            <span class="unit" id="def-unit"></span>
+            <button class="primary" id="btn-def-submit">Reveal answer</button>
+          </div>
+          <div class="err" id="def-err"></div>
+        </div>
+
+        <div class="result" id="battle-result" hidden></div>
+
+        <div class="move-stage" id="stage-move" hidden>
+          <label id="move-label">Captured! Move troops into the new territory:</label>
+          <div class="slider-row">
+            <input type="range" id="move-slider" min="1" max="1" value="1" />
+            <span class="val" id="move-val">1</span>
+          </div>
+          <div class="actions">
+            <button class="primary" id="btn-move-confirm">Occupy</button>
+          </div>
+        </div>
+
+        <div class="actions" id="result-actions" hidden>
+          <button class="primary" id="btn-result-close">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Commit-troops modal (attacker picks how many to send) -->
+  <div class="overlay" id="commit-overlay" hidden>
+    <div class="modal">
+      <h2>Launch attack</h2>
+      <p class="sub" id="commit-sub"></p>
+      <div class="field">
+        <label>Attacker troops (1–<span id="commit-atk-max">4</span>) — each extra troop removes 10 error points</label>
+        <div class="slider-row">
+          <input type="range" id="commit-atk" min="1" max="4" value="1" />
+          <span class="val" id="commit-atk-val">1</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Defender troops (auto-set; defender benefits too)</label>
+        <div class="slider-row">
+          <input type="range" id="commit-def" min="1" max="3" value="2" />
+          <span class="val" id="commit-def-val">2</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="btn-commit-cancel">Cancel</button>
+        <button class="primary" id="btn-commit-go">Start trivia duel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save/Load modal -->
+  <div class="overlay" id="saveload-overlay" hidden>
+    <div class="modal">
+      <h2 id="sl-title">Save game</h2>
+      <div id="sl-save" class="field">
+        <label>Save name</label>
+        <input type="text" id="sl-name" placeholder="my-game" />
+      </div>
+      <div id="sl-list" class="saves-list"></div>
+      <div class="actions">
+        <button class="ghost" id="btn-sl-close">Close</button>
+        <button class="primary" id="btn-sl-confirm">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Win modal -->
+  <div class="overlay" id="win-overlay" hidden>
+    <div class="modal win-banner">
+      <div class="trophy">🏆</div>
+      <h2 id="win-name">Victory</h2>
+      <p class="sub" id="win-sub"></p>
+      <div id="win-summary" class="win-summary"></div>
+      <div class="actions" style="justify-content:center">
+        <button class="primary" id="btn-win-new">New game</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/shared/map.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
