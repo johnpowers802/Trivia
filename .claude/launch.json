@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "risk",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4317", "--directory", "/Users/johnpowers/Documents/Claude/Projects/risk-game"],
+      "port": 4317
+    }
+  ]
+}

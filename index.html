@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RISK — World Domination</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <h1><span class="brand-r">R</span>ISK</h1>
+      <div class="turn-pill">
+        <span class="swatch" id="turn-swatch"></span>
+        <span id="turn-name">—</span>
+      </div>
+      <div class="phase-tag">Phase: <b id="phase-name">—</b> · Turn <span id="turn-count">1</span></div>
+    </header>
+
+    <main class="stage">
+      <div class="map-wrap">
+        <svg id="map" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+
+      <aside class="side">
+        <div class="panel">
+          <h3>This turn</h3>
+          <div class="hint" id="hint">Loading…</div>
+          <div id="reinforce-box" style="margin:8px 0 12px" hidden>
+            <span class="reinforce-counter" id="reinforce-count">0</span>
+            <span style="color:var(--muted)"> armies to place</span>
+          </div>
+          <div class="dice-tray" id="dice-tray"></div>
+          <div class="controls" style="margin-top:10px">
+            <button id="btn-advance" class="primary">Next phase →</button>
+            <button id="btn-undo-attack" class="ghost" hidden>Stop attacking</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Commanders</h3>
+          <div class="players-list" id="players-list"></div>
+        </div>
+
+        <div class="panel" style="flex:0">
+          <h3>Battle log</h3>
+        </div>
+        <div class="logbox" id="logbox"></div>
+        <div class="panel" style="border-bottom:none">
+          <button class="ghost" id="btn-new" style="width:100%">New game</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Setup modal -->
+  <div class="overlay" id="setup-overlay">
+    <div class="modal">
+      <h2>RISK — World Domination</h2>
+      <p class="sub">Conquer all 42 territories. Choose your battlefield.</p>
+      <div class="field">
+        <label>Total players</label>
+        <div class="seg" id="seg-players"></div>
+      </div>
+      <div class="field">
+        <label>Human players (rest are AI)</label>
+        <div class="seg" id="seg-humans"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btn-start" style="flex:1">Begin campaign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Move-armies modal (after conquest / fortify) -->
+  <div class="overlay" id="move-overlay" hidden>
+    <div class="modal">
+      <h2 id="move-title">Move armies</h2>
+      <p class="sub" id="move-sub"></p>
+      <div class="field">
+        <div class="slider-row">
+          <input type="range" id="move-slider" min="1" max="1" value="1" />
+          <span class="val" id="move-val">1</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ghost" id="move-cancel" hidden>Cancel</button>
+        <button class="primary" id="move-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Win modal -->
+  <div class="overlay" id="win-overlay" hidden>
+    <div class="modal win-banner">
+      <div class="trophy">🏆</div>
+      <h2 id="win-name">Victory</h2>
+      <p class="sub" id="win-sub">has conquered the world.</p>
+      <div class="actions" style="justify-content:center">
+        <button class="primary" id="win-new">Play again</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="game.js"></script>
+  <script src="ai.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
