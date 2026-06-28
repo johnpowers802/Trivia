@@ -74,6 +74,7 @@ never exposed to the client.
 | [`server/anthropic.js`](server/anthropic.js) | Server-side question generation + uniqueness retry |
 | [`server/store.js`](server/store.js) | File-based persistence (autosave + named saves) |
 | [`server/index.js`](server/index.js) | Express API + static hosting |
+| [`public/mapshapes.js`](public/mapshapes.js) | Detailed territory coastline paths (adapted from [raddrick/risk-map-svg](https://github.com/raddrick/risk-map-svg), MIT) |
 | [`public/`](public/) | Client: SVG map, battle modal, history, save/load |
 | [`test/scoring.test.js`](test/scoring.test.js) | Scoring + duplicate-detection tests (`npm test`) |
 

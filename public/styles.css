@@ -72,10 +72,10 @@ main.stage { flex: 1; display: flex; min-height: 0; }
 .terr-shape.selectable { stroke: var(--accent); stroke-width: 4; }
 .terr-shape.selected { stroke: #fff; stroke-width: 5; filter: drop-shadow(0 0 8px rgba(255,255,255,.85)); }
 .terr-shape.target { stroke: var(--gold); stroke-width: 4.5; filter: drop-shadow(0 0 8px rgba(255,211,77,.9)); }
-.terr-badge { fill: #0e1c2b; stroke: #fff; stroke-width: 2.5; pointer-events: none; opacity: .96; }
-.terr-army { fill: #fff; font-weight: 800; font-size: 21px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.terr-cat { font-size: 16px; text-anchor: middle; pointer-events: none; }
-.terr-label { fill: #eaf1f8; font-size: 14px; font-weight: 600; text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: rgba(6,14,22,.85); stroke-width: 3px; }
+.terr-badge { fill: #0e1c2b; stroke: #fff; stroke-width: 2; pointer-events: none; opacity: .96; }
+.terr-army { fill: #fff; font-weight: 800; font-size: 16px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.terr-cat { font-size: 13px; text-anchor: middle; pointer-events: none; }
+.terr-label { fill: #eaf1f8; font-size: 12px; font-weight: 600; text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: rgba(6,14,22,.9); stroke-width: 2.5px; }
 
 aside.side { width: 330px; flex-shrink: 0; background: var(--bg2); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .panel { padding: 13px 16px; border-bottom: 1px solid var(--line); }

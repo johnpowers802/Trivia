@@ -46,70 +46,81 @@ function apply(data) {
 }
 
 // ---------------- map ----------------
+let CENTERS = {};
 function buildMap() {
   const svg = $("map");
   svg.innerHTML = "";
-  const [W, H] = SHAPES.VIEWBOX;
+  const groups = {};
 
-  const bg = document.createElementNS(SVGNS, "rect");
-  bg.setAttribute("x", 0); bg.setAttribute("y", 0);
-  bg.setAttribute("width", W); bg.setAttribute("height", H);
-  bg.setAttribute("fill", "var(--sea)");
-  svg.appendChild(bg);
-
-  // Dotted sea routes (drawn under the landmasses' badges).
-  const routes = document.createElementNS(SVGNS, "g");
-  for (const [a, b] of SHAPES.SEA_ROUTES) {
-    const p1 = SHAPES.LABELS[a], p2 = SHAPES.LABELS[b];
-    if (!p1 || !p2) continue;
-    const l = document.createElementNS(SVGNS, "line");
-    l.setAttribute("x1", p1[0]); l.setAttribute("y1", p1[1]);
-    l.setAttribute("x2", p2[0]); l.setAttribute("y2", p2[1]);
-    l.setAttribute("class", "sea-route");
-    routes.appendChild(l);
-  }
-  svg.appendChild(routes);
-
-  // Territory landmasses + badges.
+  // 1) Territory landmass paths (interactive groups).
   for (const id in TERRITORIES) {
     if (!SHAPES.PATHS[id]) continue;
-    const t = TERRITORIES[id];
-    const [cx, cy] = SHAPES.LABELS[id];
-
     const g = document.createElementNS(SVGNS, "g");
     g.setAttribute("class", "terr-node");
     g.dataset.id = id;
-
     const path = document.createElementNS(SVGNS, "path");
     path.setAttribute("class", "terr-shape");
     path.setAttribute("d", SHAPES.PATHS[id]);
     g.appendChild(path);
+    g.addEventListener("click", () => onTerritoryClick(id));
+    g.addEventListener("mouseenter", () => showTerrInfo(id));
+    svg.appendChild(g);
+    groups[id] = { g, path };
+  }
 
-    // Troop badge: dark disc with white ring + count, like the board game.
+  // 2) Compute each territory's centroid + the union bounding box.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  CENTERS = {};
+  for (const id in groups) {
+    const bb = groups[id].path.getBBox();
+    CENTERS[id] = [bb.x + bb.width / 2, bb.y + bb.height / 2];
+    minX = Math.min(minX, bb.x); minY = Math.min(minY, bb.y);
+    maxX = Math.max(maxX, bb.x + bb.width); maxY = Math.max(maxY, bb.y + bb.height);
+  }
+  const pad = 24;
+  const vb = [minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2];
+  svg.setAttribute("viewBox", vb.join(" "));
+
+  // 3) Sea background (insert beneath everything).
+  const bg = document.createElementNS(SVGNS, "rect");
+  bg.setAttribute("x", vb[0]); bg.setAttribute("y", vb[1]);
+  bg.setAttribute("width", vb[2]); bg.setAttribute("height", vb[3]);
+  bg.setAttribute("fill", "var(--sea)");
+  svg.insertBefore(bg, svg.firstChild);
+
+  // 4) Dotted sea routes (above the sea, beneath the badges).
+  const routes = document.createElementNS(SVGNS, "g");
+  for (const [a, b] of SHAPES.SEA_ROUTES) {
+    if (!CENTERS[a] || !CENTERS[b]) continue;
+    const l = document.createElementNS(SVGNS, "line");
+    l.setAttribute("x1", CENTERS[a][0]); l.setAttribute("y1", CENTERS[a][1]);
+    l.setAttribute("x2", CENTERS[b][0]); l.setAttribute("y2", CENTERS[b][1]);
+    l.setAttribute("class", "sea-route");
+    routes.appendChild(l);
+  }
+  svg.insertBefore(routes, bg.nextSibling);
+
+  // 5) Troop badges, category icon, and name per territory.
+  for (const id in groups) {
+    const [cx, cy] = CENTERS[id];
+    const g = groups[id].g;
     const badge = document.createElementNS(SVGNS, "circle");
     badge.setAttribute("class", "terr-badge");
-    badge.setAttribute("cx", cx); badge.setAttribute("cy", cy); badge.setAttribute("r", 19);
+    badge.setAttribute("cx", cx); badge.setAttribute("cy", cy); badge.setAttribute("r", 14);
     g.appendChild(badge);
-
     const army = document.createElementNS(SVGNS, "text");
     army.setAttribute("class", "terr-army");
     army.setAttribute("x", cx); army.setAttribute("y", cy);
     g.appendChild(army);
-
     const cat = document.createElementNS(SVGNS, "text");
     cat.setAttribute("class", "terr-cat");
-    cat.setAttribute("x", cx + 19); cat.setAttribute("y", cy - 15);
+    cat.setAttribute("x", cx + 14); cat.setAttribute("y", cy - 11);
     g.appendChild(cat);
-
     const name = document.createElementNS(SVGNS, "text");
     name.setAttribute("class", "terr-label");
-    name.setAttribute("x", cx); name.setAttribute("y", cy + 33);
-    name.textContent = t.name;
+    name.setAttribute("x", cx); name.setAttribute("y", cy + 26);
+    name.textContent = TERRITORIES[id].name;
     g.appendChild(name);
-
-    g.addEventListener("click", () => onTerritoryClick(id));
-    g.addEventListener("mouseenter", () => showTerrInfo(id));
-    svg.appendChild(g);
   }
 }
 
