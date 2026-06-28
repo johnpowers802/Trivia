@@ -520,7 +520,7 @@ function wire() {
   $("btn-start").onclick = startGame;
   $("btn-new").onclick = () => { buildSetup(); $("setup-overlay").hidden = false; };
   $("btn-win-new").onclick = () => { $("win-overlay").hidden = true; buildSetup(); $("setup-overlay").hidden = false; };
-  $("btn-advance").onclick = () => api("/api/advance-phase").then((d) => { UI.selected = null; apply(d); });
+  $("btn-advance").onclick = () => api("/api/advance-phase", {}).then((d) => { UI.selected = null; apply(d); });
 
   $("btn-save").onclick = () => openSaveLoad("save");
   $("btn-load").onclick = () => openSaveLoad("load");
@@ -537,13 +537,13 @@ function wire() {
   $("btn-commit-go").onclick = startDuel;
 
   // battle modal
-  $("btn-retry-q").onclick = () => { showBattlePanels("loading"); api("/api/attack/retry-question").then(apply); };
-  $("btn-cancel-attack").onclick = () => api("/api/attack/cancel").then((d) => { UI.battleLoading = false; apply(d); });
+  $("btn-retry-q").onclick = () => { showBattlePanels("loading"); api("/api/attack/retry-question", {}).then(apply); };
+  $("btn-cancel-attack").onclick = () => api("/api/attack/cancel", {}).then((d) => { UI.battleLoading = false; apply(d); });
   $("btn-atk-submit").onclick = () => submitGuess("attacker");
   $("atk-guess").addEventListener("keydown", (e) => { if (e.key === "Enter") submitGuess("attacker"); });
   $("btn-def-submit").onclick = () => submitGuess("defender");
   $("def-guess").addEventListener("keydown", (e) => { if (e.key === "Enter") submitGuess("defender"); });
-  $("btn-result-close").onclick = () => api("/api/attack/dismiss").then(apply);
+  $("btn-result-close").onclick = () => api("/api/attack/dismiss", {}).then(apply);
   $("move-slider").oninput = (e) => { $("move-val").textContent = e.target.value; };
   $("btn-move-confirm").onclick = () => api("/api/attack/move", { count: parseInt($("move-slider").value, 10) }).then(apply);
 }
