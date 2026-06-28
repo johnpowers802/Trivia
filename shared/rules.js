@@ -163,24 +163,19 @@
     return { ok: true };
   }
 
-  // ---- attack: declaration ----------------------------------------
-  function declareAttack(state, fromId, toId, attackerTroops, defenderTroops) {
+  // ---- attack: a battle is a series of one-question rounds --------
+  // Each round: attacker guesses, then defender. Closest guess wins
+  // (attacker wins ties). Attacker win -> defender loses 1 troop and a
+  // new question follows (attacker may continue or retreat). Defender
+  // win -> attacker loses 1 troop and the attack ends. Full armies; no
+  // troop commitment.
+  function declareAttack(state, fromId, toId) {
     if (state.phase !== "attack") return { ok: false, error: "Not in attack phase" };
     if (state.pendingBattle) return { ok: false, error: "A battle is already in progress" };
     if (state.owner[fromId] !== state.current) return { ok: false, error: "You do not own the attacking territory" };
     if (state.owner[toId] === state.current) return { ok: false, error: "Cannot attack your own territory" };
     if (!TERRITORIES[fromId].adj.includes(toId)) return { ok: false, error: "Territories are not adjacent" };
     if (state.armies[fromId] < 2) return { ok: false, error: "Need at least 2 troops to attack" };
-
-    const maxAtk = Math.min(4, state.armies[fromId] - 1);
-    let atk = Math.floor(attackerTroops);
-    if (!isFinite(atk)) return { ok: false, error: "Invalid attacker troops" };
-    atk = Math.max(1, Math.min(atk, maxAtk));
-
-    const maxDef = Math.min(3, state.armies[toId]);
-    let def;
-    if (defenderTroops == null) def = Math.min(2, state.armies[toId]); // sensible default
-    else def = Math.max(1, Math.min(Math.floor(defenderTroops), maxDef));
 
     const battle = {
       id: uid("battle"),
@@ -190,29 +185,30 @@
       fromTerritoryId: fromId,
       toTerritoryId: toId,
       category: state.categories[toId],
-      attackerCommittedTroops: atk,
-      defenderCommittedTroops: def,
+      round: 1,
       question: null,
       attackerGuess: null,
       defenderGuess: null,
-      result: null,
+      lastResult: null,        // outcome of the most recent round
+      conqueredPending: false, // defender hit 0 -> attacker must move in
+      attackEnded: false,      // defender won a round -> attack is over
       error: null,
-      conqueredPending: false,
     };
     state.pendingBattle = battle;
     log(state, "attack_declared",
-      `${curPlayer(state).name} attacks ${TERRITORIES[toId].name} from ${TERRITORIES[fromId].name} ` +
-      `(${atk} vs ${def}) — category: ${battle.category}.`,
+      `${curPlayer(state).name} attacks ${TERRITORIES[toId].name} from ${TERRITORIES[fromId].name} — category: ${battle.category}.`,
       { battleId: battle.id, from: fromId, to: toId, category: battle.category });
     return { ok: true, battle };
   }
 
-  // Attach an Anthropic-generated question to the pending battle and
-  // record it in used-question history immediately.
+  // Attach a generated question to the pending battle's current round
+  // and record it in used-question history immediately.
   function attachQuestion(state, question) {
     const b = state.pendingBattle;
     if (!b) return { ok: false, error: "No pending battle" };
     b.question = question;
+    b.attackerGuess = null;
+    b.defenderGuess = null;
     b.status = "attacker_guess";
     b.error = null;
 
@@ -226,7 +222,7 @@
     state.usedQuestions.push(record);
     state.usedFingerprints.push(question.questionFingerprint);
     log(state, "question_generated",
-      `Question generated (${question.category}): ${question.question}`,
+      `Round ${b.round} question (${question.category}): ${question.question}`,
       { battleId: b.id, category: question.category, topic: question.topic });
     return { ok: true };
   }
@@ -238,11 +234,15 @@
   }
 
   function cancelBattle(state) {
-    if (!state.pendingBattle) return { ok: false, error: "No pending battle" };
-    log(state, "attack_cancelled", `${curPlayer(state).name} cancelled the attack on ${TERRITORIES[state.pendingBattle.toTerritoryId].name}.`);
+    const b = state.pendingBattle;
+    if (!b) return { ok: false, error: "No pending battle" };
+    if (b.conqueredPending) return { ok: false, error: "Move troops into the captured territory first" };
+    log(state, "attack_cancelled", `${curPlayer(state).name} broke off the attack on ${TERRITORIES[b.toTerritoryId].name}.`);
     state.pendingBattle = null;
     return { ok: true };
   }
+  // Retreating after a resolved round (or dismissing a finished battle).
+  const dismissBattle = cancelBattle;
 
   function validGuess(questionType, value) {
     const v = Number(value);
@@ -262,102 +262,101 @@
     return { ok: true };
   }
 
+  // Defender may now guess the same number as the attacker (ties -> attacker wins).
   function setDefenderGuess(state, guess) {
     const b = state.pendingBattle;
     if (!b || b.status !== "defender_guess") return { ok: false, error: "Not awaiting defender guess" };
     const v = validGuess(b.question.questionType, guess);
     if (!v.ok) return v;
-    if (v.value === b.attackerGuess) return { ok: false, error: "Defender guess cannot equal the attacker's guess" };
     b.defenderGuess = v.value;
-    return resolveBattle(state);
+    return resolveRoundRules(state);
   }
 
-  function resolveBattle(state) {
+  function resolveRoundRules(state) {
     const b = state.pendingBattle;
     if (!b) return { ok: false, error: "No pending battle" };
     const q = b.question;
-    const result = Scoring.resolveTriviaBattle({
-      questionType: q.questionType,
-      answer: q.answer,
+    const r = Scoring.resolveRound(q.questionType, q.answer, b.attackerGuess, b.defenderGuess);
+
+    const result = {
+      round: b.round,
       attackerGuess: b.attackerGuess,
       defenderGuess: b.defenderGuess,
-      attackerCommittedTroops: b.attackerCommittedTroops,
-      defenderCommittedTroops: b.defenderCommittedTroops,
-      attackerPlayerId: b.attackerPlayerId,
-      defenderPlayerId: b.defenderPlayerId,
-    });
+      answerLabel: q.answerLabel,
+      answerUnit: q.unit || "",
+      question: q.question,
+      attackerError: r.attackerError,
+      defenderError: r.defenderError,
+      attackerWon: r.attackerWon,
+      tie: r.tie,
+      loser: null,
+      conquered: false,
+      attackEnded: false,
+    };
 
-    // Apply damage.
-    let conquered = false;
-    if (result.loserPlayerId === b.defenderPlayerId) {
-      const before = state.armies[b.toTerritoryId];
-      state.armies[b.toTerritoryId] = Math.max(0, before - result.damage);
-      if (state.armies[b.toTerritoryId] <= 0) conquered = true;
-    } else {
-      // Attacker lost — damage hits origin but never below 1.
-      const before = state.armies[b.fromTerritoryId];
-      state.armies[b.fromTerritoryId] = Math.max(1, before - result.damage);
-    }
-    result.conquered = conquered;
-    b.result = result;
-    b.status = "resolved";
-
-    const winnerName = state.players[result.winnerPlayerId].name;
-    log(state, "battle_resolved",
-      `Battle for ${TERRITORIES[b.toTerritoryId].name}: ${winnerName} wins. ` +
-      `Answer ${q.answerLabel}. Atk ${b.attackerGuess} (score ${result.attackerFinalScore}) vs ` +
-      `Def ${b.defenderGuess} (score ${result.defenderFinalScore}). Damage ${result.damage}.`,
-      {
-        battleId: b.id,
-        from: b.fromTerritoryId,
-        to: b.toTerritoryId,
-        category: b.category,
-        question: q.question,
-        answerLabel: q.answerLabel,
-        attackerGuess: b.attackerGuess,
-        defenderGuess: b.defenderGuess,
-        attackerCommittedTroops: b.attackerCommittedTroops,
-        defenderCommittedTroops: b.defenderCommittedTroops,
-        attackerErrorPoints: result.attackerErrorPoints,
-        defenderErrorPoints: result.defenderErrorPoints,
-        attackerTroopBonus: result.attackerTroopBonus,
-        defenderTroopBonus: result.defenderTroopBonus,
-        attackerFinalScore: result.attackerFinalScore,
-        defenderFinalScore: result.defenderFinalScore,
-        winner: winnerName,
-        damage: result.damage,
-        conquered: conquered,
-      });
-
-    if (conquered) {
-      // Ownership transfers immediately; attacker must move >=1 troop in.
-      const loser = b.defenderPlayerId;
-      state.owner[b.toTerritoryId] = b.attackerPlayerId;
-      state.armies[b.toTerritoryId] = 0;
-      b.conqueredPending = true;
-      log(state, "territory_captured",
-        `${state.players[b.attackerPlayerId].name} captured ${TERRITORIES[b.toTerritoryId].name}!`,
-        { territory: b.toTerritoryId, from: loser, to: b.attackerPlayerId });
-      if (playerTerritories(state, loser).length === 0) {
-        log(state, "player_eliminated", `${state.players[loser].name} has been eliminated!`, { player: loser });
+    if (r.attackerWon) {
+      // Defender loses a troop.
+      result.loser = "defender";
+      state.armies[b.toTerritoryId] = Math.max(0, state.armies[b.toTerritoryId] - 1);
+      if (state.armies[b.toTerritoryId] <= 0) {
+        // Captured.
+        const loserPid = b.defenderPlayerId;
+        result.conquered = true;
+        b.conqueredPending = true;
+        state.owner[b.toTerritoryId] = b.attackerPlayerId;
+        state.armies[b.toTerritoryId] = 0;
+        log(state, "territory_captured",
+          `${state.players[b.attackerPlayerId].name} captured ${TERRITORIES[b.toTerritoryId].name}!`,
+          { territory: b.toTerritoryId, from: loserPid, to: b.attackerPlayerId });
+        if (playerTerritories(state, loserPid).length === 0) {
+          log(state, "player_eliminated", `${state.players[loserPid].name} has been eliminated!`, { player: loserPid });
+        }
       }
-      // Battle stays resolved+conqueredPending until troops are moved.
     } else {
-      // No conquest — battle stays "resolved" so the client can show the
-      // result; the player dismisses it to continue (dismissBattle).
-      b.conqueredPending = false;
+      // Defender won the round: attacker loses a troop and the attack ends.
+      result.loser = "attacker";
+      result.attackEnded = true;
+      b.attackEnded = true;
+      state.armies[b.fromTerritoryId] = Math.max(1, state.armies[b.fromTerritoryId] - 1);
     }
+
+    result.fromArmies = state.armies[b.fromTerritoryId];
+    result.toArmies = state.armies[b.toTerritoryId];
+    b.lastResult = result;
+    b.status = "round_result";
+
+    const wname = r.attackerWon ? state.players[b.attackerPlayerId].name : state.players[b.defenderPlayerId].name;
+    log(state, "battle_resolved",
+      `Round ${b.round} for ${TERRITORIES[b.toTerritoryId].name}: ${wname} wins` +
+      (result.tie ? " (tie → attacker)" : "") + `. Answer ${q.answerLabel}. ` +
+      `Atk ${b.attackerGuess} (err ${r.attackerError}) vs Def ${b.defenderGuess} (err ${r.defenderError}). ` +
+      `${result.loser === "defender" ? state.players[b.defenderPlayerId].name : state.players[b.attackerPlayerId].name} loses 1 troop.` +
+      (result.conquered ? " Territory captured!" : "") + (result.attackEnded ? " Attack ends." : ""),
+      {
+        battleId: b.id, round: b.round, from: b.fromTerritoryId, to: b.toTerritoryId, category: b.category,
+        question: q.question, answerLabel: q.answerLabel,
+        attackerGuess: b.attackerGuess, defenderGuess: b.defenderGuess,
+        attackerError: r.attackerError, defenderError: r.defenderError,
+        winner: wname, loser: result.loser, conquered: result.conquered, attackEnded: result.attackEnded,
+      });
 
     checkWinner(state);
     return { ok: true, result };
   }
 
-  // Clear a resolved, non-capturing battle once the player has seen the result.
-  function dismissBattle(state) {
+  // Continue to the next round (only valid after an attacker win that
+  // didn't capture). The server then generates a fresh question.
+  function prepareNextRound(state) {
     const b = state.pendingBattle;
-    if (!b) return { ok: false, error: "No battle to dismiss" };
+    if (!b || b.status !== "round_result") return { ok: false, error: "No round to continue from" };
     if (b.conqueredPending) return { ok: false, error: "Move troops into the captured territory first" };
-    state.pendingBattle = null;
+    if (b.attackEnded) return { ok: false, error: "The attack has ended" };
+    if (state.armies[b.fromTerritoryId] < 2) return { ok: false, error: "Not enough troops to keep attacking" };
+    b.round += 1;
+    b.attackerGuess = null;
+    b.defenderGuess = null;
+    b.question = null;
+    b.status = "awaiting_question";
     return { ok: true };
   }
 
@@ -474,6 +473,7 @@
     cancelBattle,
     setAttackerGuess,
     setDefenderGuess,
+    prepareNextRound,
     dismissBattle,
     applyConquestMove,
     fortify,

@@ -277,7 +277,7 @@ function onTerritoryClick(id) {
 
   if (S.phase === "attack") {
     if (UI.selected && enemyNeighbors(UI.selected).includes(id)) {
-      openCommit(UI.selected, id);
+      startAttack(UI.selected, id);
     } else if (S.owner[id] === S.current && S.armies[id] > 1 && enemyNeighbors(id).length) {
       UI.selected = id; render();
     } else if (S.owner[id] === S.current) {
@@ -303,35 +303,17 @@ function onTerritoryClick(id) {
   }
 }
 
-// ---------------- commit (attack) modal ----------------
-function openCommit(from, to) {
-  UI.commit = { from, to };
-  const maxAtk = Math.min(4, S.armies[from] - 1);
-  const maxDef = Math.min(3, S.armies[to]);
-  const defDefault = Math.min(2, S.armies[to]);
-  $("commit-sub").textContent = `${TERRITORIES[from].name} → ${TERRITORIES[to].name}  ·  category: ${S.categories[to]}`;
-  $("commit-atk-max").textContent = maxAtk;
-  const atk = $("commit-atk"); atk.min = 1; atk.max = maxAtk; atk.value = Math.min(maxAtk, Math.max(1, maxAtk));
-  $("commit-atk-val").textContent = atk.value;
-  const def = $("commit-def"); def.min = 1; def.max = maxDef; def.value = defDefault;
-  $("commit-def-val").textContent = def.value;
-  $("commit-overlay").hidden = false;
-}
-
-function startDuel() {
-  const { from, to } = UI.commit;
-  const attackerTroops = parseInt($("commit-atk").value, 10);
-  const defenderTroops = parseInt($("commit-def").value, 10);
-  $("commit-overlay").hidden = true;
-  UI.commit = null;
+// ---------------- start an attack ----------------
+function startAttack(from, to) {
   UI.selected = null;
-  // Show the battle modal in loading state immediately while we await Anthropic.
   UI.battleLoading = true;
   $("battle-overlay").hidden = false;
   showBattlePanels("loading");
-  $("battle-cat").textContent = S.categories[to];
+  const badge = CATEGORY_BADGES[S.categories[to]] || { color: "#888", icon: "" };
+  $("battle-cat").textContent = `${badge.icon} ${S.categories[to]}`;
+  $("battle-cat").style.background = badge.color;
   $("battle-route").textContent = `${TERRITORIES[from].name} → ${TERRITORIES[to].name}`;
-  api("/api/attack/declare", { fromTerritoryId: from, toTerritoryId: to, attackerTroops, defenderTroops })
+  api("/api/attack/declare", { fromTerritoryId: from, toTerritoryId: to })
     .then((d) => { UI.battleLoading = false; apply(d); });
 }
 
@@ -351,11 +333,12 @@ function renderBattle() {
   $("battle-overlay").hidden = false;
 
   const badge = CATEGORY_BADGES[b.category] || { color: "#888", icon: "" };
-  const catEl = $("battle-cat");
-  catEl.textContent = `${badge.icon} ${b.category}`;
-  catEl.style.background = badge.color;
+  $("battle-cat").textContent = `${badge.icon} ${b.category}`;
+  $("battle-cat").style.background = badge.color;
+  const atkName = S.players[b.attackerPlayerId].name;
+  const defName = S.players[b.defenderPlayerId].name;
   $("battle-route").textContent =
-    `${TERRITORIES[b.fromTerritoryId].name} → ${TERRITORIES[b.toTerritoryId].name}  (${b.attackerCommittedTroops} vs ${b.defenderCommittedTroops})`;
+    `${TERRITORIES[b.fromTerritoryId].name} (${S.armies[b.fromTerritoryId]}) → ${TERRITORIES[b.toTerritoryId].name} (${S.armies[b.toTerritoryId]})`;
 
   if (b.status === "awaiting_question") { showBattlePanels("loading"); return; }
   if (b.status === "error") {
@@ -365,23 +348,21 @@ function renderBattle() {
   }
 
   showBattlePanels("body");
-  const atkName = S.players[b.attackerPlayerId].name;
-  const defName = S.players[b.defenderPlayerId].name;
-  $("battle-question").textContent = b.question.question;
+  if (b.question) $("battle-question").textContent = b.question.question;
   $("commit-info").textContent =
-    `${atkName} committed ${b.attackerCommittedTroops} troop(s) (−${(b.attackerCommittedTroops - 1) * 10} err) · ` +
-    `${defName} ${b.defenderCommittedTroops} (−${(b.defenderCommittedTroops - 1) * 10} err)`;
+    `Round ${b.round} · closest guess wins (ties → attacker). Loser loses 1 troop. ` +
+    `${atkName}: ${S.armies[b.fromTerritoryId]} troops · ${defName}: ${S.armies[b.toTerritoryId]} troops`;
 
-  const unit = b.question.unit ? b.question.unit : "";
+  const unit = (b.question && b.question.unit) ? b.question.unit : "";
   $("atk-unit").textContent = unit;
   $("def-unit").textContent = unit;
 
-  // stages
   $("stage-attacker").hidden = b.status !== "attacker_guess";
   $("stage-defender").hidden = b.status !== "defender_guess";
-  $("battle-result").hidden = b.status !== "resolved";
-  $("stage-move").hidden = !(b.status === "resolved" && b.conqueredPending);
-  $("result-actions").hidden = !(b.status === "resolved" && !b.conqueredPending);
+  $("battle-result").hidden = b.status !== "round_result";
+  $("stage-move").hidden = !(b.status === "round_result" && b.conqueredPending);
+  // Action buttons (Next / Retreat / Continue) handled in renderResult.
+  $("result-actions").hidden = b.status !== "round_result";
 
   if (b.status === "attacker_guess") {
     $("atk-label").textContent = `${atkName} (attacker), enter your numeric guess:`;
@@ -390,44 +371,47 @@ function renderBattle() {
     if (document.activeElement !== inp) { inp.value = ""; inp.focus(); }
   } else if (b.status === "defender_guess") {
     $("atk-locked").textContent = `${atkName} locked in: ${b.attackerGuess}`;
-    $("def-label").textContent = `${defName} (defender), enter your numeric guess (different from attacker):`;
+    $("def-label").textContent = `${defName} (defender), enter your numeric guess (you may copy the attacker):`;
     $("def-err").textContent = "";
     const inp = $("def-guess");
     if (document.activeElement !== inp) { inp.value = ""; inp.focus(); }
-  } else if (b.status === "resolved") {
+  } else if (b.status === "round_result") {
     renderResult(b);
   }
 }
 
 function renderResult(b) {
-  const r = b.result;
-  const q = b.question;
+  const r = b.lastResult;
   const atkName = S.players[b.attackerPlayerId].name;
   const defName = S.players[b.defenderPlayerId].name;
-  const winName = S.players[r.winnerPlayerId].name;
-  const atkWin = r.attackerWins;
+  const winName = r.attackerWon ? atkName : defName;
+  const loserName = r.loser === "defender" ? defName : atkName;
 
-  const rows = `
-    <div class="answer">Answer: ${escapeHtml(q.answerLabel)}${q.unit ? " " + escapeHtml(q.unit) : ""}</div>
-    <div class="winner">🏆 ${escapeHtml(winName)} wins the duel</div>
+  $("battle-result").innerHTML = `
+    <div class="answer">Answer: ${escapeHtml(r.answerLabel)}${r.answerUnit ? " " + escapeHtml(r.answerUnit) : ""}</div>
+    <div class="winner">🏆 ${escapeHtml(winName)} wins round ${r.round}${r.tie ? " (tie → attacker)" : ""}</div>
     <table>
-      <tr><th></th><th class="${atkWin ? "col-win" : ""}">${escapeHtml(atkName)} (atk)</th><th class="${!atkWin ? "col-win" : ""}">${escapeHtml(defName)} (def)</th></tr>
-      <tr><td>Guess</td><td>${b.attackerGuess}</td><td>${b.defenderGuess}</td></tr>
-      <tr><td>Error points</td><td>${r.attackerErrorPoints}</td><td>${r.defenderErrorPoints}</td></tr>
-      <tr><td>Troop bonus</td><td>−${r.attackerTroopBonus}</td><td>−${r.defenderTroopBonus}</td></tr>
-      <tr><td>Final score</td><td class="${atkWin ? "col-win" : ""}">${r.attackerFinalScore}</td><td class="${!atkWin ? "col-win" : ""}">${r.defenderFinalScore}</td></tr>
+      <tr><th></th><th class="${r.attackerWon ? "col-win" : ""}">${escapeHtml(atkName)} (atk)</th><th class="${!r.attackerWon ? "col-win" : ""}">${escapeHtml(defName)} (def)</th></tr>
+      <tr><td>Guess</td><td>${r.attackerGuess}</td><td>${r.defenderGuess}</td></tr>
+      <tr><td>Error points (lower = closer)</td><td class="${r.attackerWon ? "col-win" : ""}">${r.attackerError}</td><td class="${!r.attackerWon ? "col-win" : ""}">${r.defenderError}</td></tr>
     </table>
-    <div class="dmg">Score gap <b>${r.scoreGap}</b> → <b>${r.damage}</b> troop(s) lost by ${escapeHtml(S.players[r.loserPlayerId].name)}.
+    <div class="dmg"><b>${escapeHtml(loserName)}</b> loses 1 troop.
     ${r.conquered ? `<br><b style="color:var(--gold)">${escapeHtml(TERRITORIES[b.toTerritoryId].name)} captured!</b>` : ""}
-    <br><span class="muted">${escapeHtml(TERRITORIES[b.fromTerritoryId].name)}: ${S.armies[b.fromTerritoryId]} · ${escapeHtml(TERRITORIES[b.toTerritoryId].name)}: ${S.armies[b.toTerritoryId]} troops</span></div>
+    ${r.attackEnded && !r.conquered ? `<br><b style="color:#ffb3b3">Attack repelled — the assault ends.</b>` : ""}
+    <br><span class="muted">${escapeHtml(TERRITORIES[b.fromTerritoryId].name)}: ${r.fromArmies} · ${escapeHtml(TERRITORIES[b.toTerritoryId].name)}: ${r.toArmies} troops</span></div>
   `;
-  $("battle-result").innerHTML = rows;
+
+  // Buttons: capture -> move; defender win -> Continue (ends); attacker win -> Next/Retreat.
+  const canContinue = r.attackerWon && !r.conquered && S.armies[b.fromTerritoryId] >= 2;
+  $("btn-next").hidden = !canContinue;
+  $("btn-retreat").hidden = !canContinue;
+  $("btn-result-close").hidden = !(b.attackEnded || (r.attackerWon && !r.conquered && !canContinue));
 
   if (r.conquered) {
     const from = b.fromTerritoryId;
     const max = Math.max(1, S.armies[from] - 1);
     const sl = $("move-slider");
-    sl.min = 1; sl.max = max; sl.value = Math.min(b.attackerCommittedTroops, max);
+    sl.min = 1; sl.max = max; sl.value = max;
     $("move-val").textContent = sl.value;
     $("move-label").textContent = `Captured ${TERRITORIES[b.toTerritoryId].name}! Move troops in from ${TERRITORIES[from].name} (1–${max}):`;
   }
@@ -537,12 +521,6 @@ function wire() {
     api("/api/save", { name }).then((d) => { if (d.ok) { toast("Saved as " + d.saved); $("saveload-overlay").hidden = true; } else toast(d.error); });
   };
 
-  // commit modal
-  $("commit-atk").oninput = (e) => { $("commit-atk-val").textContent = e.target.value; };
-  $("commit-def").oninput = (e) => { $("commit-def-val").textContent = e.target.value; };
-  $("btn-commit-cancel").onclick = () => { $("commit-overlay").hidden = true; UI.commit = null; };
-  $("btn-commit-go").onclick = startDuel;
-
   // battle modal
   $("btn-retry-q").onclick = () => { showBattlePanels("loading"); api("/api/attack/retry-question", {}).then(apply); };
   $("btn-cancel-attack").onclick = () => api("/api/attack/cancel", {}).then((d) => { UI.battleLoading = false; apply(d); });
@@ -550,6 +528,8 @@ function wire() {
   $("atk-guess").addEventListener("keydown", (e) => { if (e.key === "Enter") submitGuess("attacker"); });
   $("btn-def-submit").onclick = () => submitGuess("defender");
   $("def-guess").addEventListener("keydown", (e) => { if (e.key === "Enter") submitGuess("defender"); });
+  $("btn-next").onclick = () => { showBattlePanels("loading"); api("/api/attack/next", {}).then(apply); };
+  $("btn-retreat").onclick = () => api("/api/attack/cancel", {}).then(apply);
   $("btn-result-close").onclick = () => api("/api/attack/dismiss", {}).then(apply);
   $("move-slider").oninput = (e) => { $("move-val").textContent = e.target.value; };
   $("btn-move-confirm").onclick = () => api("/api/attack/move", { count: parseInt($("move-slider").value, 10) }).then(apply);

@@ -34,8 +34,8 @@ function sanitize(state) {
   delete s.usedFingerprints;
 
   if (s.pendingBattle && s.pendingBattle.question) {
-    if (s.pendingBattle.status !== "resolved") {
-      // Reveal only at resolution: strip the answer and any hints.
+    if (s.pendingBattle.status !== "round_result") {
+      // Reveal only once the round is resolved: strip the answer and hints.
       const q = s.pendingBattle.question;
       q.answer = null;
       q.answerLabel = null;
@@ -117,8 +117,17 @@ app.post("/api/advance-phase", (req, res) => {
 
 app.post("/api/attack/declare", async (req, res) => {
   if (!requireGame(res)) return;
-  const { fromTerritoryId, toTerritoryId, attackerTroops, defenderTroops } = req.body || {};
-  const r = Rules.declareAttack(GAME, fromTerritoryId, toTerritoryId, attackerTroops, defenderTroops);
+  const { fromTerritoryId, toTerritoryId } = req.body || {};
+  const r = Rules.declareAttack(GAME, fromTerritoryId, toTerritoryId);
+  if (!r.ok) return fail(res, r.error);
+  store.saveCurrent(GAME);
+  await generateForPending();
+  send(res);
+});
+
+app.post("/api/attack/next", async (req, res) => {
+  if (!requireGame(res)) return;
+  const r = Rules.prepareNextRound(GAME);
   if (!r.ok) return fail(res, r.error);
   store.saveCurrent(GAME);
   await generateForPending();
